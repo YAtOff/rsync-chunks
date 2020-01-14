@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 import hashlib
+from itertools import takewhile, dropwhile
 from pathlib import Path
 import os
-from typing import Union, List, Optional, Iterable, Iterator, Tuple
+from typing import Union, List, Optional, Iterable, Tuple
 
 from dynaconf import settings  # type: ignore
 
@@ -90,22 +91,11 @@ def deserialize_file_chunks(data) -> List[Chunk]:
     return [Chunk(**d) for d in data]
 
 
-def get_chunks_by_range(cursor: Iterator[Chunk], start: int, end: int) -> Iterable[Chunk]:
-    chunk = next(cursor)
-    while chunk.offset < start:
-        chunk = next(cursor)
-
-    padding = chunk.offset - start
-    if padding != 0:
-        yield Chunk(start, padding)
-
-    while chunk.offset + chunk.size < end:
-        yield chunk
-        chunk = next(cursor)
-
-    padding = end - chunk.offset
-    if padding != 0:
-        yield Chunk(chunk.offset, padding)
+def get_chunks_in_range(base_chunks: Iterable[Chunk], start: int, end: int) -> Iterable[Chunk]:
+    return takewhile(
+        lambda c: c.offset + c.size <= end,
+        dropwhile(lambda c: c.offset < start, base_chunks)
+    )
 
 
 def merge_chunks(
@@ -134,23 +124,20 @@ def split_chunks(chunks: Iterable[Chunk], min_size: int = settings.CHUNK_SIZE) -
 
 
 def handle_delta_commands(
-    base_chunks: Iterable[Chunk], delta_commands: List[DeltaCommand]
+    base_chunks: List[Chunk], delta_commands: List[DeltaCommand]
 ) -> Iterable[Chunk]:
-    base_chunks_cursor = iter(base_chunks)
     offset = 0
     for cmd in delta_commands:
         if isinstance(cmd, LiteralDeltaCommand):
             yield Chunk(offset=offset, size=cmd.length, hash=None)
             offset += cmd.length
         elif isinstance(cmd, CopyDeltaCommand):
-            yield from get_chunks_by_range(
-                base_chunks_cursor, cmd.start, cmd.start + cmd.length
-            )
+            yield from get_chunks_in_range(base_chunks, cmd.start, cmd.start + cmd.length)
             offset += cmd.length
 
 
 def update_chunks(
-    base_chunks: Iterable[Chunk], delta_commands: List[DeltaCommand],
+    base_chunks: List[Chunk], delta_commands: List[DeltaCommand],
     filename: str, min_size: int = settings.CHUNK_SIZE
 ) -> Iterable[Chunk]:
     chunks = list(split_chunks(

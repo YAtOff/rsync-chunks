@@ -11,8 +11,10 @@ import librsync
 
 from rschunks.delta import parse_delta_from_file
 from rschunks.chunk import (
-    read_chunks_from_file, update_chunks,
-    serialize_file_chunks, deserialize_file_chunks
+    read_chunks_from_file,
+    update_chunks,
+    serialize_file_chunks,
+    deserialize_file_chunks,
 )
 
 
@@ -45,8 +47,8 @@ def signature(ctx, filename: str):
         file_metadata_dir.mkdir(parents=True)
 
     signature = os.fspath(file_metadata_dir / "signature")
-    librsync.signature_from_paths(filename, signature)
-    with open(file_metadata_dir / "chunks.json", "wt") as f:
+    librsync.signature_from_paths(filename, signature, block_len=settings.CHUNK_SIZE)
+    with open(file_metadata_dir / "base-chunks.json", "wt") as f:
         json.dump(serialize_file_chunks(read_chunks_from_file(filename)), f, indent=2)
 
 
@@ -60,16 +62,16 @@ def update(ctx, filename: str):
     delta = os.fspath(file_metadata_dir / "delta")
     librsync.delta_from_paths(signature, filename, delta)
     delta_commands = list(parse_delta_from_file(delta))
-    with open(file_metadata_dir / "chunks.json", "rt") as f:
+    with open(file_metadata_dir / "base-chunks.json", "rt") as f:
         base_chunks = deserialize_file_chunks(json.load(f))
 
-    timestamp = datetime.now().strftime('%Y-%m-%dT%H-%M-%S')
-    old_dir = metadata_folder / f"{Path(filename).name}-{timestamp}"
-    shutil.move(file_metadata_dir, old_dir)
-    file_metadata_dir.mkdir(parents=True)
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    shutil.move(
+        file_metadata_dir / "chunks.json",
+        file_metadata_dir / f"chunks-{timestamp}.json"
+    )
 
     new_chunks = update_chunks(base_chunks, delta_commands, filename)
-    librsync.signature_from_paths(filename, signature)
     with open(file_metadata_dir / "chunks.json", "wt") as f:
         json.dump(serialize_file_chunks(new_chunks), f, indent=2)
 
