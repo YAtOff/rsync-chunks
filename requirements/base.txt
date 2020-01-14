@@ -1,0 +1,5 @@
+-e .
+-e ./librsync
+Click==7.0
+dynaconf==2.2.0
+pytz==2019.3

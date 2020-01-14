@@ -1,0 +1,20 @@
+[default]
+ENVIRONMENT = "dev"
+CHUNK_SIZE =  1048576
+CHUNK_HASH_FUNC = "md5"
+STORAGE_FOLDER = "storage"
+METADATA_FOLDER = "metadata"
+
+[development]
+ENVIRONMENT = "dev"
+CHUNK_SIZE =  1048576
+CHUNK_HASH_FUNC = "md5"
+STORAGE_FOLDER = "storage"
+METADATA_FOLDER = "metadata"
+
+[testing]
+ENVIRONMENT = "testing"
+CHUNK_SIZE =  1048576
+CHUNK_HASH_FUNC = "md5"
+STORAGE_FOLDER = "storage"
+METADATA_FOLDER = "metadata"
