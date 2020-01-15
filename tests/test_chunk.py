@@ -74,4 +74,7 @@ def test_handle_delta_copy():
         handle_delta_commands(base_chunks, [CopyDeltaCommand(start=start, length=end - start)])
     )
 
-    assert chunks == base_chunks[3:7]
+    assert chunks == [
+        Chunk(offset=c.offset - base_chunks[3].offset, size=c.size, hash=c.hash)
+        for c in base_chunks[3:7]
+    ]

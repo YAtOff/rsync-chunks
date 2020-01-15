@@ -132,8 +132,9 @@ def handle_delta_commands(
             yield Chunk(offset=offset, size=cmd.length, hash=None)
             offset += cmd.length
         elif isinstance(cmd, CopyDeltaCommand):
-            yield from get_chunks_in_range(base_chunks, cmd.start, cmd.start + cmd.length)
-            offset += cmd.length
+            for chunk in get_chunks_in_range(base_chunks, cmd.start, cmd.start + cmd.length):
+                yield Chunk(offset=offset, size=chunk.size, hash=chunk.hash)
+                offset += chunk.size
 
 
 def update_chunks(

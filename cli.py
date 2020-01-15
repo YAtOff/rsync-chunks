@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from datetime import datetime
 import json
 import os
@@ -31,14 +32,6 @@ def cli(ctx):
 @cli.command()
 @click.pass_context
 @click.argument("filename")
-def parse_delta(ctx, filename):
-    for command in parse_delta_from_file(filename):
-        print(command)
-
-
-@cli.command()
-@click.pass_context
-@click.argument("filename")
 def signature(ctx, filename: str):
     assert storage_folder in Path(filename).parents
     file_metadata_dir = metadata_folder / Path(filename).name
@@ -50,6 +43,11 @@ def signature(ctx, filename: str):
     librsync.signature_from_paths(filename, signature, block_len=settings.CHUNK_SIZE)
     with open(file_metadata_dir / "base-chunks.json", "wt") as f:
         json.dump(serialize_file_chunks(read_chunks_from_file(filename)), f, indent=2)
+
+    shutil.copy(
+        file_metadata_dir / "base-chunks.json",
+        file_metadata_dir / "chunks.json"
+    )
 
 
 @cli.command()
