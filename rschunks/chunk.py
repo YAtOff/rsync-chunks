@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 import hashlib
-from itertools import takewhile, dropwhile
+from itertools import chain
 from pathlib import Path
 import os
 from typing import Union, List, Optional, Iterable, Tuple
@@ -17,6 +17,14 @@ class Chunk:
     offset: int
     size: int
     hash: Optional[str] = None
+
+    @classmethod
+    def from_range(cls, start: int, end: int, normal_size: int = settings.CHUNK_SIZE) -> Iterable[Chunk]:
+        offset = start
+        while offset < end:
+            chunk_size = min(normal_size, end - offset)
+            yield Chunk(offset=offset, size=chunk_size)
+            offset += chunk_size
 
     def merge(self, other: Chunk) -> Chunk:
         assert self.offset + self.size == other.offset
@@ -91,13 +99,6 @@ def deserialize_file_chunks(data) -> List[Chunk]:
     return [Chunk(**d) for d in data]
 
 
-def get_chunks_in_range(base_chunks: Iterable[Chunk], start: int, end: int) -> Iterable[Chunk]:
-    return takewhile(
-        lambda c: c.offset + c.size <= end,
-        dropwhile(lambda c: c.offset < start, base_chunks)
-    )
-
-
 def merge_chunks(
     chunks: Iterable[Chunk], normal_chunk_size: int = settings.CHUNK_SIZE
 ) -> Iterable[Chunk]:
@@ -124,7 +125,8 @@ def split_chunks(chunks: Iterable[Chunk], min_size: int = settings.CHUNK_SIZE) -
 
 
 def handle_delta_commands(
-    base_chunks: List[Chunk], delta_commands: List[DeltaCommand]
+    delta_commands: List[DeltaCommand],
+    normal_chunk_size: int = settings.CHUNK_SIZE
 ) -> Iterable[Chunk]:
     offset = 0
     for cmd in delta_commands:
@@ -132,21 +134,38 @@ def handle_delta_commands(
             yield Chunk(offset=offset, size=cmd.length, hash=None)
             offset += cmd.length
         elif isinstance(cmd, CopyDeltaCommand):
-            for chunk in get_chunks_in_range(base_chunks, cmd.start, cmd.start + cmd.length):
-                yield Chunk(offset=offset, size=chunk.size, hash=chunk.hash)
-                offset += chunk.size
+            yield from Chunk.from_range(
+                offset, offset + cmd.length, normal_size=normal_chunk_size
+            )
+            offset += cmd.length
 
 
 def update_chunks(
-    base_chunks: List[Chunk], delta_commands: List[DeltaCommand],
-    filename: str, min_size: int = settings.CHUNK_SIZE
+    delta_commands: List[DeltaCommand],
+    filename: str, normal_chunk_size: int = settings.CHUNK_SIZE
 ) -> Iterable[Chunk]:
     chunks = list(split_chunks(
         merge_chunks(
-            handle_delta_commands(base_chunks, delta_commands),
-            normal_chunk_size=min_size
+            handle_delta_commands(
+                delta_commands,
+                normal_chunk_size=normal_chunk_size
+            ),
+            normal_chunk_size=normal_chunk_size
         ),
-        min_size=min_size
+        min_size=normal_chunk_size
     ))
     fill_chunks_from_file(chunks, filename)
     return chunks
+
+
+def diff_chunks(old: List[Chunk], new: List[Chunk]):
+    sizes = {c.hash: c.size for c in chain(old, new)}
+    oldset = {c.hash for c in old}
+    newset = {c.hash for c in new}
+    return {
+        "new_size": sum(sizes[c] for c in newset),
+        "old_size": sum(sizes[c] for c in oldset),
+        "preserved": sum(sizes[c] for c in (oldset & newset)),
+        "deleted": sum(sizes[c] for c in (oldset - newset)),
+        "added": sum(sizes[c] for c in (newset - oldset)),
+    }

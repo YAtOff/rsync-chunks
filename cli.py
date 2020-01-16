@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-from datetime import datetime
+
 import json
 import os
 from pathlib import Path
+from pprint import pprint
 import shutil
 
 import click
@@ -16,6 +17,7 @@ from rschunks.chunk import (
     update_chunks,
     serialize_file_chunks,
     deserialize_file_chunks,
+    diff_chunks
 )
 
 
@@ -32,22 +34,18 @@ def cli(ctx):
 @cli.command()
 @click.pass_context
 @click.argument("filename")
-def signature(ctx, filename: str):
+def init(ctx, filename: str):
     assert storage_folder in Path(filename).parents
     file_metadata_dir = metadata_folder / Path(filename).name
 
-    if not file_metadata_dir.exists():
-        file_metadata_dir.mkdir(parents=True)
+    if file_metadata_dir.exists():
+        shutil.rmtree(file_metadata_dir)
+    file_metadata_dir.mkdir(parents=True)
 
     signature = os.fspath(file_metadata_dir / "signature")
     librsync.signature_from_paths(filename, signature, block_len=settings.CHUNK_SIZE)
-    with open(file_metadata_dir / "base-chunks.json", "wt") as f:
+    with open(file_metadata_dir / "chunks.json", "wt") as f:
         json.dump(serialize_file_chunks(read_chunks_from_file(filename)), f, indent=2)
-
-    shutil.copy(
-        file_metadata_dir / "base-chunks.json",
-        file_metadata_dir / "chunks.json"
-    )
 
 
 @cli.command()
@@ -60,18 +58,20 @@ def update(ctx, filename: str):
     delta = os.fspath(file_metadata_dir / "delta")
     librsync.delta_from_paths(signature, filename, delta)
     delta_commands = list(parse_delta_from_file(delta))
-    with open(file_metadata_dir / "base-chunks.json", "rt") as f:
-        base_chunks = deserialize_file_chunks(json.load(f))
+    new_chunks = list(update_chunks(delta_commands, filename))
 
-    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-    shutil.move(
-        file_metadata_dir / "chunks.json",
-        file_metadata_dir / f"chunks-{timestamp}.json"
-    )
-
-    new_chunks = update_chunks(base_chunks, delta_commands, filename)
-    with open(file_metadata_dir / "chunks.json", "wt") as f:
+    chunks_file = file_metadata_dir / f"chunks.json"
+    prev_chunks_file = file_metadata_dir / f"chunks-prev.json"
+    if prev_chunks_file.exists():
+        prev_chunks_file.unlink()
+    shutil.move(chunks_file, prev_chunks_file)
+    with open(chunks_file, "wt") as f:
         json.dump(serialize_file_chunks(new_chunks), f, indent=2)
+
+    with open(prev_chunks_file, "rt") as f:
+        old_chunks = deserialize_file_chunks(json.load(f))
+
+    pprint(diff_chunks(old_chunks, new_chunks))
 
 
 if __name__ == "__main__":

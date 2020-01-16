@@ -1,16 +1,21 @@
 import random
 from functools import reduce
 
+from faker import Faker, providers
+
 
 from rschunks.chunk import (
     merge_chunks,
     split_chunks,
-    get_chunks_in_range,
     handle_delta_commands,
+    diff_chunks,
     Chunk,
 )
 from rschunks.delta import LiteralDeltaCommand, CopyDeltaCommand
 
+
+fake = Faker()
+fake.add_provider(providers.misc)
 
 CHUNK_SIZE = 1024
 
@@ -48,33 +53,47 @@ def test_split_chunks():
     assert all(c.size <= CHUNK_SIZE for c in splitted)
 
 
-def test_get_chunks_in_range():
-    base_chunks = make_chunks(10)
-    first = base_chunks[3]
-    last = base_chunks[6]
-
-    chunks = list(get_chunks_in_range(base_chunks, first.offset, last.offset + last.size))
-
-    assert chunks == base_chunks[3:7]
+def test_make_chunks_from_range():
+    assert list(Chunk.from_range(10, 17, normal_size=3)) == [
+        Chunk(offset=10, size=3),
+        Chunk(offset=13, size=3),
+        Chunk(offset=16, size=1),
+    ]
 
 
 def test_handle_delta_literal():
     chunks = list(
-        handle_delta_commands([], [LiteralDeltaCommand(length=1), LiteralDeltaCommand(length=1)])
+        handle_delta_commands([LiteralDeltaCommand(length=1), LiteralDeltaCommand(length=1)])
     )
     assert chunks == [Chunk(offset=0, size=1), Chunk(offset=1, size=1)]
 
 
 def test_handle_delta_copy():
-    base_chunks = make_chunks(10)
-    first, last = base_chunks[3], base_chunks[6]
-    start = first.offset
-    end = last.offset + last.size
     chunks = list(
-        handle_delta_commands(base_chunks, [CopyDeltaCommand(start=start, length=end - start)])
+        handle_delta_commands(
+            [CopyDeltaCommand(start=CHUNK_SIZE, length=CHUNK_SIZE * 2 + 100)],
+            normal_chunk_size=CHUNK_SIZE
+        )
     )
 
     assert chunks == [
-        Chunk(offset=c.offset - base_chunks[3].offset, size=c.size, hash=c.hash)
-        for c in base_chunks[3:7]
+        Chunk(offset=0, size=CHUNK_SIZE),
+        Chunk(offset=CHUNK_SIZE, size=CHUNK_SIZE),
+        Chunk(offset=CHUNK_SIZE * 2, size=100),
     ]
+
+
+def test_diff_chunks():
+    def chunk(hash):
+        return Chunk(offset=0, size=1, hash=hash)
+
+    old = [chunk(1), chunk(2), chunk(3)]
+    new = [chunk(1), chunk(5), chunk(3), chunk(4)]
+
+    assert diff_chunks(old, new) == {
+        "new_size": 4,
+        "old_size": 3,
+        "preserved": 2,
+        "deleted": 1,
+        "added": 2
+    }
